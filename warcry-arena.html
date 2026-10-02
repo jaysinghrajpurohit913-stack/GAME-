@@ -34,7 +34,7 @@ select{font:inherit;padding:6px;background:#140f18;color:#f3e6d8;border:1px soli
 <div id="end"><h1 id="endT"></h1><p id="endM"></p><div><button id="endB">Rematch</button><button id="endL" class="alt">Leave</button></div></div>
 <div id="menu"><h1>Warcry: Body Arena</h1>
 <p>Prototype: one mechanic. Throw a spear at the enemy and dodge the ones thrown back.</p>
-<p><b>Webcam:</b> raise a hand above your shoulder for 0.3s to summon a spear, then swing your arm down and forward to throw. For the chakra, bend one arm with the elbow down and your hand out to the side and up, like a sideways V, hold 0.35s, then sweep or snap to throw. Lean, sidestep or duck to dodge. Cross your arms over your chest for a shield (blocks 2 hits, then recharges for 4s). Stand 2 m back with your upper body and head in view.</p>
+<p><b>Webcam:</b> raise a hand above your shoulder for 0.3s to summon a spear, then swing your arm down and forward to throw. For the chakra, bend one arm with the elbow down and your hand out to the side and up, like a sideways V, hold 0.35s, then sweep or snap to throw. Lean, sidestep or duck to dodge. Cross your arms over your chest (hands on opposite shoulders) and keep them there to hold a shield up. Uncross and it disappears. Stand 2 m back with your upper body and head in view.</p>
 <p><b>Mouse and keyboard:</b> hold the mouse button to summon, release to throw toward the cursor. Hold right mouse (or E) for the chakra. A/D moves, S ducks. Hold F or Shift for the shield.</p>
 <div id="err"></div>
 <div><button id="bCam">Play with webcam</button><button id="bMock" class="alt">Play with mouse and keyboard</button><button id="bNet" class="alt">Online duel (2 players)</button></div>
@@ -105,15 +105,16 @@ let heldP=null,heldE=null;
 const sh={up:false,hits:2,cool:0,t:0};let rSh=0;
 const shMat=()=>new THREE.MeshBasicMaterial({color:0x66ccff,transparent:true,opacity:.3,side:2,depthWrite:false});
 const shM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat()),rShM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat());shM.visible=rShM.visible=false;S.add(shM,rShM);
-function shieldPose(L){const sw=Math.abs(L[11].x-L[12].x)||.15;if(L[15].v<.5||L[16].v<.5)return false;
- const a=Math.abs(L[16].x-L[11].x)/sw,b=Math.abs(L[15].x-L[12].x)/sw,y1=(L[16].y-L[11].y)/sw,y2=(L[15].y-L[12].y)/sw;
- return a<.7&&b<.7&&y1>-.3&&y1<1&&y2>-.3&&y2<1}
-function shieldUpdate(dt,on){if(sh.cool>0){sh.cool-=dt;if(sh.cool<=0)sh.hits=2}
- if(on&&sh.cool<=0&&!over){sh.t+=dt;if(sh.t>.25)sh.up=true}else{sh.t=0;sh.up=false}
- shM.visible=sh.up;if(sh.up){shM.position.set(px,1.15,5.4);shM.material.opacity=.15+.1*Math.sin(performance.now()/90)+.12*sh.hits}}
-function blockHit(q){sh.hits--;st.shake=.25;toast('Blocked');burst(q.p,0x66ccff);snd('hit');q.stuck=true;q.life=2;q.m.visible=false;q.v.set(0,0,0);
- if(st.net)netSend({t:'b',x:+q.p.x.toFixed(2),y:+q.p.y.toFixed(2)});
- if(sh.hits<=0){sh.up=false;sh.cool=4;toast('Shield broke')}}
+function shieldPose(L){const sw=Math.abs(L[11].x-L[12].x)||.15;if(L[15].v<.3||L[16].v<.3)return false;
+ // label-free: when arms cross, tracking often swaps left/right, so just require both hands in the chest zone, near the body centre
+ const mx=(L[11].x+L[12].x)/2,sy=(L[11].y+L[12].y)/2,a=L[15],b=L[16];
+ const ok=w=>Math.abs(w.x-mx)<.9*sw&&(w.y-sy)/sw>-.1&&(w.y-sy)/sw<1;
+ return ok(a)&&ok(b)&&Math.abs(a.x-b.x)<1.5*sw}
+function shieldUpdate(dt,on){
+ if(on&&!over){sh.t+=dt;sh.off=0;if(sh.t>.08)sh.up=true}else{sh.t=0;sh.off=(sh.off||0)+dt;if(sh.off>.25)sh.up=false}
+ shM.visible=sh.up;if(sh.up){shM.position.set(px,1.15,5.4);shM.material.opacity=.3+.1*Math.sin(performance.now()/90)}}
+function blockHit(q){st.shake=.25;toast('Blocked');burst(q.p,0x66ccff);snd('hit');q.stuck=true;q.life=2;q.m.visible=false;q.v.set(0,0,0);
+ if(st.net)netSend({t:'b',x:+q.p.x.toFixed(2),y:+q.p.y.toFixed(2)})}
 
 // ---- state ----
 const st={php:100,ehp:100,ts:1,shake:0,over:0,mode:null};
@@ -308,7 +309,7 @@ function frame(){requestAnimationFrame(frame);
    if(cp>0&&!armed)for(let i=0;i<2;i++){const an=Math.random()*6.28,rr=.9*(1-cp*.5),o=new THREE.Vector3(Math.cos(an)*rr,Math.sin(an)*rr,(Math.random()-.5)*.6);puff(new THREE.Vector3(h.x,h.y,6).add(o),o.clone().multiplyScalar(-4),.22,0xffb060,.06)}
    if(heldP){const u=heldP.userData;u.t+=real;const k=Math.min(u.t/.25,1);heldP.scale.setScalar(Math.max(.01,1-Math.pow(1-k,3)+Math.sin(k*Math.PI)*.2));
     heldP.position.set(h.x,h.y+.1+Math.sin(now*6)*.02,6);heldP.lookAt(h.x,h.y+.1,0);heldP.rotateZ(now*3)}
-   if(st.mode==='cam')$('st').textContent=(g.armed?'Spear ready. Swing down and forward.':'Raise a hand above your shoulder.')+'  speed '+g.spd.toFixed(1)+'  duck '+(headY<1.15?'yes':'no')+'  (C to recalibrate)';
+   if(st.mode==='cam')$('st').textContent=(g.armed?'Spear ready. Swing down and forward.':'Raise a hand above your shoulder.')+'  speed '+g.spd.toFixed(1)+'  duck '+(headY<1.15?'yes':'no')+'  shield '+(sh.up?'UP':'off')+'  (C to recalibrate)';
    else $('st').textContent=(mock.armed?'Spear ready. Release to throw.':'Hold mouse to summon.')+'  A/D move, S duck'}
   if(!st.net)enemyUpdate(dt,now);spears(dt);puffsUpdate(dt);ringsUpdate(real);if(st.net)netTick(real,now)}
  st.fl=Math.max(0,(st.fl||0)-real*3);st.rfl=Math.max(0,(st.rfl||0)-real*3);av.position.set(0,0,6+st.fl*.7);rav.position.z=-6-st.rfl*.7;if(!st.net)en.position.z=-6-st.rfl*.7;
@@ -335,7 +336,7 @@ $('bCam').onclick=async()=>{$('err').textContent='Loading camera and pose model.
  catch(e){$('err').textContent='Camera mode failed: '+(e.message||e)+'. Open this file locally in Chrome, allow the camera, and check your internet connection. You can still use mouse and keyboard.'}};
 $('bNet').onclick=()=>{try{AC=AC||new AudioContext()}catch(e){}$('net').style.display='flex'};
 // Set these after you deploy the server (see server/README.md)
-const NET={server:'',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
+const NET={server:'https://game-73a0.onrender.com',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
 function peerOpts(){const ice=[{urls:'stun:stun.l.google.com:19302'}];if(NET.turn)ice.push(NET.turn);const o={config:{iceServers:ice}};
  if(NET.server){const u=new URL(NET.server);Object.assign(o,{host:u.hostname,port:u.port||(u.protocol==='https:'?443:80),path:'/peerjs',secure:u.protocol==='https:'})}return o}
 function mkPeer(id){return new Promise((res,rej)=>{if(typeof Peer==='undefined'){say('PeerJS did not load. Check your internet and reload.');return rej()}
