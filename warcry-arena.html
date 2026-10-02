@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Warcry: Body Arena (prototype)</title>
+<style>
+html,body{margin:0;height:100%;background:#140f18;color:#f3e6d8;font:15px/1.4 "Palatino Linotype",Palatino,Georgia,serif;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+#hud{position:fixed;inset:0;pointer-events:none}
+.bar{position:absolute;top:16px;width:34%;height:14px;background:#0008;border:1px solid #fff4}
+.bar i{display:block;height:100%;transition:width .2s}
+#pb{left:16px}#pb i{background:#58c27d}#eb{right:16px}#eb i{background:#e5533d;margin-left:auto}
+#st{position:absolute;left:16px;bottom:16px;max-width:60%;text-shadow:0 1px 3px #000}
+#toast{position:absolute;top:30%;width:100%;text-align:center;font-size:34px;font-weight:700;color:#ffb070;text-shadow:0 2px 8px #000;opacity:0;transition:opacity .25s}
+#flash{position:absolute;inset:0;box-shadow:inset 0 0 160px #e5231a;opacity:0;transition:opacity .4s}
+#cam{position:fixed;right:12px;bottom:12px;width:180px;border:1px solid #fff5;transform:scaleX(-1);display:none}
+#menu{position:fixed;inset:0;background:#140f18ee;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+#menu h1{font-size:44px;margin:0 0 8px;letter-spacing:.02em}
+#menu p{max-width:560px;margin:6px 0}
+button{font:inherit;font-weight:700;margin:14px 8px 0;padding:12px 22px;background:#ff7a3c;color:#1a0e08;border:0;cursor:pointer}
+button.alt{background:#0000;color:#f3e6d8;border:1px solid #f3e6d8}
+button:focus-visible{outline:3px solid #fff}
+#err{color:#ff9a8a;min-height:1.4em}
+#net{display:none;flex-direction:column;align-items:center;margin-top:10px;width:100%}
+textarea{width:90%;max-width:520px;height:64px;margin:6px 0;background:#0008;color:#f3e6d8;border:1px solid #fff5;font:11px monospace}
+#net input{font:700 18px monospace;text-align:center;letter-spacing:.2em;margin:6px;padding:8px;background:#0008;color:#f3e6d8;border:1px solid #fff5;text-transform:uppercase}
+#end{position:fixed;inset:0;background:#140f18cc;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center}#end h1{font-size:56px;margin:0}#ping{position:absolute;top:36px;left:50%;transform:translateX(-50%);font-size:12px;opacity:.75}
+select{font:inherit;padding:6px;background:#140f18;color:#f3e6d8;border:1px solid #fff5}
+#nMsg{min-height:1.4em;color:#ffb070}
+</style></head><body>
+<canvas id="c"></canvas>
+<video id="cam" playsinline muted></video>
+<div id="hud"><div class="bar" id="pb"><i style="width:100%"></i></div><div class="bar" id="eb"><i style="width:100%"></i></div>
+<div id="ping"></div><div id="toast"></div><div id="flash"></div><div id="st"></div></div>
+<div id="end"><h1 id="endT"></h1><p id="endM"></p><div><button id="endB">Rematch</button><button id="endL" class="alt">Leave</button></div></div>
+<div id="menu"><h1>Warcry: Body Arena</h1>
+<p>Prototype: one mechanic. Throw a spear at the enemy and dodge the ones thrown back.</p>
+<p><b>Webcam:</b> raise a hand above your shoulder for 0.3s to summon a spear, then swing your arm down and forward to throw. For the chakra, bend one arm with the elbow down and your hand out to the side and up, like a sideways V, hold 0.35s, then sweep or snap to throw. Lean, sidestep or duck to dodge. Cross your arms over your chest for a shield (blocks 2 hits, then recharges for 4s). Stand 2 m back with your upper body and head in view.</p>
+<p><b>Mouse and keyboard:</b> hold the mouse button to summon, release to throw toward the cursor. Hold right mouse (or E) for the chakra. A/D moves, S ducks. Hold F or Shift for the shield.</p>
+<div id="err"></div>
+<div><button id="bCam">Play with webcam</button><button id="bMock" class="alt">Play with mouse and keyboard</button><button id="bNet" class="alt">Online duel (2 players)</button></div>
+<div id="net"><label>Your controls: <select id="inp"><option value="cam">Webcam</option><option value="mock">Mouse and keyboard</option></select></label>
+<div><button id="nHost">Host a duel</button><button id="nJoin" class="alt">Join a duel</button><button id="nQuick" class="alt">Quick match</button></div>
+<p id="nMsg"></p><input id="nOut" readonly placeholder="Your room code appears here" size="22">
+<input id="nIn" placeholder="Joiner: type the room code" size="22" maxlength="4"><button id="nGo">Connect</button></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script type="module">
+const $=id=>document.getElementById(id);
+const R=new THREE.WebGLRenderer({canvas:$('c'),antialias:true});
+R.setPixelRatio(Math.min(devicePixelRatio,1.5));R.shadowMap.enabled=true;
+const S=new THREE.Scene();S.fog=new THREE.Fog(0x4a2f33,14,52);
+const cam=new THREE.PerspectiveCamera(60,1,.1,100);
+const rs=()=>{R.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()};addEventListener('resize',rs);rs();
+S.add(new THREE.HemisphereLight(0x9a8ac0,0x3a2418,1.15));
+const sun=new THREE.DirectionalLight(0xffc890,1);sun.position.set(-4,10,4);sun.castShadow=true;S.add(sun);
+const M=(c,o={})=>new THREE.MeshStandardMaterial({color:c,roughness:.8,...o});
+const gr=new THREE.Mesh(new THREE.PlaneGeometry(40,50),M(0x3a2f2c));gr.rotation.x=-Math.PI/2;gr.receiveShadow=true;S.add(gr);
+const torches=[],flames=[];
+for(let i=0;i<6;i++){const p=new THREE.Mesh(new THREE.CylinderGeometry(.6,.7,7,8),M(0x5a4a44));p.position.set(i%2?9:-9,3.5,-14+Math.floor(i/2)*9);p.castShadow=true;S.add(p);
+ if(i===2||i===3){const l=new THREE.PointLight(0xff8a3c,1.4,16);l.position.set(p.position.x*.85,5,p.position.z+1);S.add(l);torches.push(l)}
+ const fl=new THREE.Mesh(new THREE.SphereGeometry(.28,8,6),new THREE.MeshBasicMaterial({color:0xffa040}));fl.position.set(p.position.x*.85,5.2,p.position.z+1);S.add(fl);flames.push(fl);
+ const cap=new THREE.Mesh(new THREE.BoxGeometry(1.7,.5,1.7),M(0x6a5a52));cap.position.set(p.position.x,7.2,p.position.z);S.add(cap)}
+const wall=new THREE.Mesh(new THREE.BoxGeometry(40,9,1),M(0x2c2426));wall.position.set(0,4.5,-16);S.add(wall);
+function tex(f,n=256){const c=document.createElement('canvas');c.width=c.height=n;f(c.getContext('2d'),n);const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t}
+const stone=tex((x,n)=>{x.fillStyle='#5a4c46';x.fillRect(0,0,n,n);for(let i=0;i<1200;i++){const v=60+Math.random()*50|0;x.fillStyle='rgb('+(v+12)+','+v+','+(v-6)+')';x.fillRect(Math.random()*n,Math.random()*n,3,3)}x.strokeStyle='#2a201e';x.lineWidth=3;for(let i=0;i<=n;i+=n/4){x.beginPath();x.moveTo(i,0);x.lineTo(i,n);x.moveTo(0,i);x.lineTo(n,i);x.stroke()}});
+stone.repeat.set(10,12);gr.material.map=stone;gr.material.color.set(0xffffff);gr.material.needsUpdate=true;
+S.background=tex((x,n)=>{const g=x.createLinearGradient(0,0,0,n);g.addColorStop(0,'#1d1a33');g.addColorStop(.55,'#6b3b3a');g.addColorStop(1,'#d08a4c');x.fillStyle=g;x.fillRect(0,0,n,n)});
+for(const bx of [-8,0,8]){const b=new THREE.Mesh(new THREE.PlaneGeometry(1.6,4),M(0x8a1f24,{side:2}));b.position.set(bx,5,-15.4);S.add(b)}
+const EM=90,ep=new Float32Array(EM*3);for(let i=0;i<EM;i++){ep[i*3]=(Math.random()-.5)*30;ep[i*3+1]=Math.random()*8;ep[i*3+2]=-14+Math.random()*26}
+const ems=new THREE.Points(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(ep,3)),new THREE.PointsMaterial({color:0xffa850,size:.09,transparent:true,opacity:.8}));S.add(ems);
+function embers(dt){const t=performance.now()/1000;for(let i=0;i<EM;i++){ep[i*3+1]+=dt*(.5+(i%5)*.15);ep[i*3]+=Math.sin(t+i)*dt*.3;if(ep[i*3+1]>8)ep[i*3+1]=0}ems.geometry.attributes.position.needsUpdate=true}
+
+// ---- avatar (bones as cylinders between joints) ----
+const BONES=[[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+const av=new THREE.Group();av.position.z=6;S.add(av);
+const bones=BONES.map(()=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,1,8),M(0xd8c9b8));av.add(m);return m});
+const head=new THREE.Mesh(new THREE.SphereGeometry(.17,16,12),M(0xe8d8c4));av.add(head);
+
+const Y=new THREE.Vector3(0,1,0);
+function setBone(m,a,b){const va=new THREE.Vector3(a.x,a.y,0),vb=new THREE.Vector3(b.x,b.y,0),d=vb.clone().sub(va),l=d.length()||.01;
+ m.position.copy(va).add(vb).multiplyScalar(.5);m.scale.set(1,l,1);m.quaternion.setFromUnitVectors(Y,d.normalize())}
+
+// ---- enemy dummy ----
+const en=new THREE.Group();en.position.z=-6;S.add(en);
+const eBody=new THREE.Mesh(new THREE.BoxGeometry(.7,1.1,.4),M(0x7a3a30));eBody.position.y=.95;
+const eHead=new THREE.Mesh(new THREE.SphereGeometry(.22,16,12),M(0xc9a48a));eHead.position.y=1.72;
+const eLeg=new THREE.Mesh(new THREE.BoxGeometry(.5,.5,.3),M(0x3a2a28));eLeg.position.y=.25;
+const eArm=new THREE.Mesh(new THREE.BoxGeometry(.18,.7,.18),M(0x7a3a30));eArm.geometry.translate(0,.3,0);eArm.position.set(.45,1.4,0);
+en.add(eBody,eHead,eLeg,eArm);en.traverse(o=>o.castShadow=true);
+
+// ---- spears ----
+function mkSpear(c){const g=new THREE.Group();
+ const s=new THREE.CylinderGeometry(.03,.03,1.8,6);s.rotateX(Math.PI/2);
+ const t=new THREE.ConeGeometry(.08,.3,8);t.rotateX(Math.PI/2);t.translate(0,0,1);
+ g.add(new THREE.Mesh(s,M(0x8a6a48)),new THREE.Mesh(t,M(c,{emissive:c,emissiveIntensity:.5})));
+ for(let k=0;k<2;k++){const f=new THREE.Mesh(new THREE.BoxGeometry(.01,.3,.35),M(c,{emissive:c,emissiveIntensity:.4}));f.position.z=-.75;f.rotation.z=k*Math.PI/2;g.add(f)}S.add(g);return g}
+function mkChakra(c){const g=new THREE.Group(),t=new THREE.Group(),e={emissive:c,emissiveIntensity:.8};
+ const r=new THREE.TorusGeometry(.38,.05,8,28);r.rotateX(Math.PI/2);
+ t.add(new THREE.Mesh(r,M(c,e)),new THREE.Mesh(new THREE.CylinderGeometry(.3,.3,.03,28),M(0x30202a,{metalness:.5})),new THREE.Mesh(new THREE.CylinderGeometry(.1,.1,.06,12),M(c,e)));
+ g.add(t);g.rotation.x=.9;S.add(g);return g}
+let heldC=null;
+const flying=[];const G=5;
+let heldP=null,heldE=null;
+const sh={up:false,hits:2,cool:0,t:0};let rSh=0;
+const shMat=()=>new THREE.MeshBasicMaterial({color:0x66ccff,transparent:true,opacity:.3,side:2,depthWrite:false});
+const shM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat()),rShM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat());shM.visible=rShM.visible=false;S.add(shM,rShM);
+function shieldPose(L){const sw=Math.abs(L[11].x-L[12].x)||.15;if(L[15].v<.5||L[16].v<.5)return false;
+ const a=Math.abs(L[16].x-L[11].x)/sw,b=Math.abs(L[15].x-L[12].x)/sw,y1=(L[16].y-L[11].y)/sw,y2=(L[15].y-L[12].y)/sw;
+ return a<.7&&b<.7&&y1>-.3&&y1<1&&y2>-.3&&y2<1}
+function shieldUpdate(dt,on){if(sh.cool>0){sh.cool-=dt;if(sh.cool<=0)sh.hits=2}
+ if(on&&sh.cool<=0&&!over){sh.t+=dt;if(sh.t>.25)sh.up=true}else{sh.t=0;sh.up=false}
+ shM.visible=sh.up;if(sh.up){shM.position.set(px,1.15,5.4);shM.material.opacity=.15+.1*Math.sin(performance.now()/90)+.12*sh.hits}}
+function blockHit(q){sh.hits--;st.shake=.25;toast('Blocked');burst(q.p,0x66ccff);snd('hit');q.stuck=true;q.life=2;q.m.visible=false;q.v.set(0,0,0);
+ if(st.net)netSend({t:'b',x:+q.p.x.toFixed(2),y:+q.p.y.toFixed(2)});
+ if(sh.hits<=0){sh.up=false;sh.cool=4;toast('Shield broke')}}
+
+// ---- state ----
+const st={php:100,ehp:100,ts:1,shake:0,over:0,mode:null};
+let base={cx:.5,ny:.22},calib=[],L=null,px=0,headY=1.65;
+const mock={wx:0,d:0,hold:false,armT:0,armed:false,mx:.5,kick:0,keys:{}};
+const W=l=>({x:(base.cx-l.x)*3,y:1.65+(base.ny-l.y)*2.6});
+function toast(t){const e=$('toast');e.textContent=t;e.style.opacity=1;clearTimeout(toast.h);toast.h=setTimeout(()=>e.style.opacity=0,900)}
+function bars(){$('pb').firstChild.style.width=st.php+'%';$('eb').firstChild.style.width=st.ehp+'%'}
+function hitFx(big){st.shake=big?.5:.25;st.ts=.15;setTimeout(()=>st.ts=1,110)}
+function reset(){st.php=st.ehp=100;sh.hits=2;sh.cool=0;bars()}
+
+// ---- mock pose synth (same landmark format as MediaPipe) ----
+function mockPose(dt){const k=mock.keys;
+ const tx=(k.a||k.arrowleft?-1.6:0)+(k.d||k.arrowright?1.6:0);mock.wx+=(tx-mock.wx)*Math.min(1,dt*8);
+ mock.d+=((k.s||k.arrowdown?1:0)-mock.d)*Math.min(1,dt*10);
+ const up=mock.armed||mock.hold,P=Array.from({length:33},()=>({x:.5,y:.5,v:1}));
+ const set=(i,x,y)=>{P[i]={x,y,v:1}};
+ set(0,.5,.22);set(11,.58,.36);set(12,.42,.36);set(13,.62,.46);set(15,.64,.56);
+ const cu=mock.cArmed||mock.cHold;set(14,cu?.38:(up?.35:.38),cu?.54:(up?.3:.46));set(16,cu?.24:(up?.33:.4),cu?.45:(up?.2:.56+(mock.kick>0?-.1:0)));
+ if(k.f||k.shift){set(14,.5,.5);set(13,.5,.5);set(16,.57,.42);set(15,.43,.42)}set(23,.56,.62);set(24,.44,.62);set(25,.56,.75);set(26,.44,.75);set(27,.56,.88);set(28,.44,.88);
+ for(const p of P){p.y+=mock.d*.22*Math.max(0,1-(p.y-.22)/.66);p.x-=mock.wx/3}
+ return P}
+
+// ---- gesture engine (camera) ----
+const g={t:0,armed:false,hand:null,prev:null,spd:0,cool:0,vx:0,vy:0};
+const gc={t:0,armed:false,hand:16,prev:null,cool:0,vx:0,vy:0,top:0};
+function gestureC(L,dt){const sw=Math.abs(L[11].x-L[12].x)||.15;gc.cool-=dt;
+ if(!gc.armed){if(g.armed||g.t>0){gc.t=0;return}
+  let f=null;const mx=(L[11].x+L[12].x)/2;
+  for(const [w,s,e] of [[16,12,14],[15,11,13]]){const A_=L[w],B_=L[s],E_=L[e];if(A_.v<.5||E_.v<.5)continue;
+   const down=(E_.y-B_.y)/sw,up=(E_.y-A_.y)/sw,out=Math.abs(A_.x-E_.x)/sw,away=(Math.abs(A_.x-mx)-Math.abs(E_.x-mx))/sw,below=(A_.y-B_.y)/sw;
+   if(down>.5&&below>.15&&up>.15&&away>.3&&out>.3&&up/out>.25&&up/out<2)f=w}
+  if(f&&gc.cool<=0){gc.t+=dt;gc.hand=f;if(gc.t>.35){gc.armed=true;gc.prev=null;gc.vx=gc.vy=0;gc.top=0}}else gc.t=0
+ }else{const w=L[gc.hand],s=L[gc.hand===16?12:11];
+  if(gc.prev&&dt<.2){const ix=(w.x-gc.prev.x)/dt/sw,iy=(w.y-gc.prev.y)/dt/sw;gc.vx+=(ix-gc.vx)*.5;gc.vy+=(iy-gc.vy)*.5;
+   const sp=Math.hypot(gc.vx,gc.vy);gc.top=Math.max(gc.top*.92,sp);
+   if(sp>2.4&&(Math.abs(gc.vx)>1.2||gc.vy>.6)){throwChakra(Math.max(-.7,Math.min(.7,-gc.vx/sp*.7)),Math.max(15,Math.min(27,12+gc.top*2.5)));gc.armed=false;gc.t=0;gc.cool=.6}}
+  gc.prev={x:w.x,y:w.y};
+  if(w.y<s.y-.1*sw||(w.y-s.y)/sw>1.4){gc.t+=dt;if(gc.t>.8){gc.armed=false;gc.t=0}}else gc.t=0}}
+function throwChakra(dx,spd){const h=handPos(true),T=12/spd,ex=st.net?(rc[0]?rc[0].x:0):2.2*Math.sin((performance.now()/1000+T)*.5),A=.3;
+ const d=new THREE.Vector3(dx,.03,-1).normalize().multiplyScalar(spd);d.x=d.x*(1-A)+A*(ex-h.x)/T;d.y=d.y*(1-A)+A*((1.3-h.y+.5*G*.25*T*T)/T);
+ const cv=-dx*3;flying.push({m:mkChakra(0xb066ff),p:new THREE.Vector3(h.x,h.y,6),v:d,mine:true,c:true,curve:cv,life:0});
+ mock.cArmed=false;st.kick=.7;snd('throw');
+ if(st.net)netSend({t:'c',x:+h.x.toFixed(2),y:+h.y.toFixed(2),v:[d.x,d.y,d.z].map(n=>+n.toFixed(2)),cv})}
+function cStart(){mock.cHold=true;mock.cT=0}
+function cEnd(){if(mock.cArmed)throwChakra((mock.mx-.5)*.8,20);mock.cHold=false;mock.cArmed=false;mock.cT=0}
+function gesture(L,dt,now){
+ const sw=Math.abs(L[11].x-L[12].x)||.15;g.cool-=dt;
+ if(!g.armed){let found=null;
+  for(const [w,s] of [[16,12],[15,11]]) if(L[w].v>.5&&L[w].y<L[s].y-.15*sw) found=w;
+  if(found&&g.cool<=0&&!gc.armed){g.t+=dt;g.hand=found;if(g.t>.3){g.armed=true;g.prev=null;g.vx=g.vy=0;g.top=0;g.peak=L[g.hand].y}}else g.t=0;
+ }else{const w=L[g.hand],s=L[g.hand===16?12:11];
+  g.peak=Math.min(g.peak,w.y);
+  if(g.prev&&dt<.2){const ix=(w.x-g.prev.x)/dt/sw,iy=(w.y-g.prev.y)/dt/sw;
+   g.vx+=(ix-g.vx)*.5;g.vy+=(iy-g.vy)*.5;g.spd=Math.hypot(g.vx,g.vy);g.top=Math.max(g.top*.92,g.spd);
+   const drop=(w.y-g.peak)/sw;
+   if((g.spd>1.5&&g.vy>.3&&drop>.35)||(g.spd>3.2&&g.vy>0)){
+    const dx=Math.max(-.6,Math.min(.6,-g.vx/(g.spd||1)*.5));
+    throwSpear(dx,Math.max(17,Math.min(34,10+g.top*3.5)));g.armed=false;g.t=0;g.cool=.6}}
+  g.prev={x:w.x,y:w.y};
+  if(w.y>s.y+.3*sw){g.t+=dt;if(g.t>.8){g.armed=false;g.t=0}}else g.t=0}}
+
+function handPos(c){const idx=(st.mode==='cam'?(c?gc.hand:g.hand):16)||16;return W(L[idx])}
+function throwSpear(dx,spd){const h=handPos(),sp=mkSpear(0xffd27a);
+ const T=12/spd,ex=st.net?(rc[0]?rc[0].x:0):2.2*Math.sin((performance.now()/1000+T)*.5),A=.35;
+ const d=new THREE.Vector3(dx,.05,-1).normalize().multiplyScalar(spd);
+ d.x=d.x*(1-A)+A*(ex-h.x)/T;d.y=d.y*(1-A)+A*((1.3-h.y+.5*G*T*T)/T);
+ flying.push({m:sp,p:new THREE.Vector3(h.x,h.y,6),v:d,mine:true,life:0});mock.kick=.2;mock.armed=false;st.kick=1;snd('throw');if(st.net)netSend({t:'t',x:+h.x.toFixed(2),y:+h.y.toFixed(2),v:[d.x,d.y,d.z].map(n=>+n.toFixed(2))})}
+let AC;function snd(t){try{if(!AC)return;const n=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);
+ if(t==='sum'){o.type='sine';o.frequency.setValueAtTime(220,n);o.frequency.exponentialRampToValueAtTime(900,n+.3);g.gain.setValueAtTime(.001,n);g.gain.linearRampToValueAtTime(.12,n+.25);g.gain.exponentialRampToValueAtTime(.001,n+.5)}
+ else if(t==='throw'){o.type='sawtooth';o.frequency.setValueAtTime(700,n);o.frequency.exponentialRampToValueAtTime(90,n+.3);g.gain.setValueAtTime(.09,n);g.gain.exponentialRampToValueAtTime(.001,n+.35)}
+ else{o.type='square';o.frequency.setValueAtTime(160,n);o.frequency.exponentialRampToValueAtTime(40,n+.2);g.gain.setValueAtTime(.14,n);g.gain.exponentialRampToValueAtTime(.001,n+.25)}
+ o.start(n);o.stop(n+.6)}catch(e){}}
+const chargeP=()=>st.mode==='mock'?(mock.hold?Math.min(mock.armT/.3,1):0):(g.t>0&&!g.armed?Math.min(g.t/.3,1):0);
+const orb=new THREE.Mesh(new THREE.SphereGeometry(1,16,12),new THREE.MeshBasicMaterial({color:0xffc070,transparent:true,opacity:.85}));orb.visible=false;S.add(orb);
+const hl=new THREE.PointLight(0xffa040,0,6);S.add(hl);
+const rgeo=new THREE.RingGeometry(.9,1,32),rings=[];
+for(let i=0;i<8;i++){const m=new THREE.Mesh(rgeo,new THREE.MeshBasicMaterial({color:0xffd27a,transparent:true,side:2}));m.visible=false;S.add(m);rings.push({m,t:0,on:false})}
+function ring(h){const q=rings.find(r=>!r.on)||rings[0];q.m.position.set(h.x,h.y,6);q.m.scale.setScalar(.1);q.m.material.opacity=1;q.m.visible=true;q.t=0;q.on=true}
+function ringsUpdate(dt){for(const q of rings){if(!q.on)continue;q.t+=dt;const k=q.t/.4;if(k>=1){q.m.visible=false;q.on=false;continue}q.m.scale.setScalar(.1+k*1.2);q.m.material.opacity=1-k}}
+const pg=new THREE.BoxGeometry(1,1,1),pm={},puffs=[],tv=new THREE.Vector3();
+const pmat=c=>pm[c]||(pm[c]=new THREE.MeshBasicMaterial({color:c}));[0xffd27a,0xffb060,0xff5a3c].forEach(pmat);
+for(let i=0;i<120;i++){const m=new THREE.Mesh(pg,pmat(0xffd27a));m.visible=false;S.add(m);puffs.push({m,v:new THREE.Vector3(),life:0,max:1,sz:1,on:false})}
+function puff(p,v,life,c,sz){const q=puffs.find(x=>!x.on)||puffs[0];q.m.material=pmat(c);q.m.position.copy(p);q.v.copy(v);q.life=q.max=life;q.sz=sz;q.m.scale.setScalar(sz);q.m.visible=true;q.on=true}
+function puffsUpdate(dt){for(const q of puffs){if(!q.on)continue;q.life-=dt;if(q.life<=0){q.m.visible=false;q.on=false;continue}q.m.position.addScaledVector(q.v,dt);q.m.scale.setScalar(q.sz*q.life/q.max)}}
+function burst(p,c){for(let i=0;i<16;i++)puff(p,tv.set((Math.random()-.5)*5,Math.random()*4,(Math.random()-.5)*5),.5,c,.09)}
+
+
+// ---- enemy AI ----
+const ai={t:1.5,phase:'idle'};
+function enemyUpdate(dt,now){en.position.x=2.2*Math.sin(now*.5);
+ ai.t-=dt;
+ if(ai.phase==='idle'&&ai.t<=0){ai.phase='wind';ai.t=1;heldE=mkSpear(0xff5a3c)}
+ else if(ai.phase==='wind'){eArm.rotation.z=Math.PI*.9*(1-Math.max(0,ai.t));eBody.material.emissive.setHex(0x661100);
+  heldE.position.set(en.position.x+.5,2.3,-6);heldE.lookAt(en.position.x+.5,2.3,0);
+  if(ai.t<=0){const T=12/17,ty=Math.random()<.5?1.3:1.5,sx=en.position.x+.5,sy=2.3;
+   const v=new THREE.Vector3((px-sx)/T,(ty-sy+.5*G*T*T)/T,17);
+   S.remove(heldE);heldE=null;flying.push({m:mkSpear(0xff5a3c),p:new THREE.Vector3(sx,sy,-6),v,mine:false,life:0});
+   eArm.rotation.z=0;eBody.material.emissive.setHex(0);ai.phase='idle';ai.t=1.8+Math.random()*1.6}}}
+
+// ---- spears update + hits ----
+function spears(dt){for(let i=flying.length-1;i>=0;i--){const s=flying[i];
+ if(s.stuck){s.life+=dt;s.m.position.x=s.p.x+Math.sin(s.life*70)*Math.max(0,.4-s.life)*.12;if(s.life>2){S.remove(s.m);flying.splice(i,1)}continue}
+ const pz=s.p.z;if(s.c){s.v.x+=s.curve*dt;s.v.y-=G*.25*dt}else s.v.y-=G*dt;s.p.addScaledVector(s.v,dt);s.m.position.copy(s.p);
+ if(s.c)s.m.children[0].rotation.y+=dt*30;else{s.m.lookAt(s.p.clone().add(s.v));s.m.rotateZ(s.spin=(s.spin||0)+dt*(s.mine?22:10))}
+ puff(s.p,tv.set(0,0,0),.3,s.c?0xb066ff:(s.mine?0xffd27a:0xff5a3c),.07);
+ if(s.mine&&!st.net&&pz>-6&&s.p.z<=-6){const dx=s.p.x-en.position.x;
+  if(Math.abs(dx)<.55&&s.p.y>.1&&s.p.y<2&&!over){const hd=s.p.y>1.5;st.ehp-=s.c?(hd?35:25):(hd?40:20);st.rfl=1;hitFx(hd);toast(hd?'Headshot':'Hit');burst(s.p,0xffd27a);snd('hit');bars();s.stuck=true;s.v.set(0,0,0);
+   if(st.ehp<=0){endRound(true)}}}
+ if(!s.mine&&pz<6&&s.p.z>=6){const dx=Math.abs(s.p.x-px);
+  if(sh.up&&dx<.9&&s.p.y>.1&&s.p.y<headY+.5)blockHit(s);
+  else if(dx<.45&&s.p.y>.1&&s.p.y<headY+.25&&!over){const hd=s.p.y>headY-.25;st.php-=s.c?(hd?35:25):(hd?40:20);st.fl=1;hitFx(true);bars();if(st.net)netSend({t:'h',hd,hp:Math.max(0,st.php),x:+s.p.x.toFixed(2),y:+s.p.y.toFixed(2)});const f=$('flash');f.style.opacity=1;setTimeout(()=>f.style.opacity=0,200);toast('Ouch');burst(s.p,0xff5a3c);snd('hit');s.stuck=true;s.v.set(0,0,0);
+   if(st.php<=0){if(st.net)netSend({t:'d'});endRound(false)}}
+  else{const near=dx<.8&&s.p.y>.1&&s.p.y<headY+.6;toast(near?'Close call':'Dodged');if(near){st.ts=.25;setTimeout(()=>st.ts=1,260)}}}
+ if(!s.stuck&&(s.p.y<0||Math.abs(s.p.z)>15)){s.stuck=true;s.v.set(0,0,0)}}}
+
+// ---- camera + pose (MediaPipe) ----
+const video=$('cam');let landmarker=null,lastT=-1,lastNow=0;
+async function initCam(){
+ const ms=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'}});
+ video.srcObject=ms;await video.play();video.style.display='block';
+ const v=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+ const fs=await v.FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+ landmarker=await v.PoseLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',delegate:'GPU'},runningMode:'VIDEO',numPoses:1})}
+
+function camPose(now){
+ if(video.currentTime===lastT)return false;lastT=video.currentTime;
+ const r=landmarker.detectForVideo(video,now);if(!r.landmarks[0])return false;
+ const raw=r.landmarks[0].map(l=>({x:l.x,y:l.y,v:l.visibility}));
+ if(!L)L=raw;else L=L.map((o,i)=>({x:o.x+(raw[i].x-o.x)*.55,y:o.y+(raw[i].y-o.y)*.55,v:raw[i].v}));
+ return true}
+function calibrate(){if(calib.length<30)return false}
+
+// ---- online duel (WebRTC peer to peer, manual code exchange, no server) ----
+const J=[0,11,12,13,14,15,16,23,24,25,26,27,28];
+const rav=new THREE.Group();rav.position.z=-6;rav.visible=false;S.add(rav);
+const rBones=BONES.map(()=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,1,8),M(0xc96a5a));rav.add(m);return m});
+const rHead=new THREE.Mesh(new THREE.SphereGeometry(.17,16,12),M(0xd9a48a));rav.add(rHead);
+let peer,conn,rt=null,rc={},rArm=0,rW=0,rHeld=null,lastSend=0,lastPing=0,left=false,role=null,over=false,myR=false,opR=false;
+function endRound(win){over=true;myR=opR=false;$('endT').textContent=win?'You win':'You fell';$('endM').textContent='';$('endB').style.display='';$('endB').textContent=st.net?'Rematch':'Play again';$('end').style.display='flex'}
+function startRound(){over=false;myR=opR=false;$('end').style.display='none';flying.splice(0).forEach(q=>S.remove(q.m));reset()}
+function oppLeft(){if(!st.net||left)return;left=true;over=true;$('endT').textContent='Opponent left';$('endM').textContent='';$('endB').style.display='none';$('end').style.display='flex'}
+$('endB').onclick=()=>{if(!st.net){startRound();return}myR=true;netSend({t:'r'});$('endM').textContent='Waiting for opponent...';if(opR)startRound()};
+$('endL').onclick=()=>location.reload();
+const netSend=o=>{if(conn&&conn.open)conn.send(o)};
+function onNet(m){
+ if(m.t==='p'){rt=J.map((_,k)=>({x:-m.j[2*k],y:m.j[2*k+1]}));rArm=m.a;rW=m.w||0;rSh=m.s||0;rav.visible=true}
+ else if(m.t==='t'){flying.push({m:mkSpear(0xff5a3c),p:new THREE.Vector3(-m.x,m.y,-6),v:new THREE.Vector3(-m.v[0],m.v[1],-m.v[2]),mine:false,life:0});snd('throw')}
+ else if(m.t==='c'){flying.push({m:mkChakra(0xff5a3c),p:new THREE.Vector3(-m.x,m.y,-6),v:new THREE.Vector3(-m.v[0],m.v[1],-m.v[2]),mine:false,c:true,curve:-m.cv,life:0});snd('throw')}
+ else if(m.t==='b'){burst(new THREE.Vector3(-m.x,m.y,-6),0x66ccff);snd('hit');toast('They blocked')}
+ else if(m.t==='pi')netSend({t:'po',ts:m.ts});
+ else if(m.t==='po')$('ping').textContent='Ping '+Math.round(performance.now()-m.ts)+' ms';
+ else if(m.t==='r'){opR=true;if(myR)startRound();else if(over)$('endM').textContent='Opponent wants a rematch'}
+ else if(m.t==='h'){st.rfl=1;st.ehp=m.hp;bars();hitFx(m.hd);toast(m.hd?'Headshot':'Hit');burst(new THREE.Vector3(-m.x,m.y,-6),0xffd27a);snd('hit')}
+ else if(m.t==='d'){endRound(true)}}
+function netTick(dt,now){if(now-lastPing>2){lastPing=now;netSend({t:'pi',ts:performance.now()})}
+ if(L&&!calib&&conn&&conn.open&&now-lastSend>.05){lastSend=now;
+  const j=[];for(const i of J){const w=W(L[i]);j.push(+w.x.toFixed(2),+w.y.toFixed(2))}
+  const mk=st.mode==='mock';netSend({t:'p',j,a:mk?((mock.armed||mock.cArmed)?16:0):(g.armed?g.hand:(gc.armed?gc.hand:0)),w:mk?(mock.cArmed?1:0):(gc.armed&&!g.armed?1:0),s:sh.up?1:0})}
+ if(!rt)return;const al=Math.min(1,dt*14);
+ J.forEach((i,k)=>{const t=rt[k],c=rc[i]||(rc[i]={x:t.x,y:t.y});c.x+=(t.x-c.x)*al;c.y+=(t.y-c.y)*al});
+ BONES.forEach((b,i)=>setBone(rBones[i],rc[b[0]],rc[b[1]]));rHead.position.set(rc[0].x,rc[0].y,0);rShM.visible=!!rSh;rShM.position.set(rc[0].x,1.15,-5.4);
+ if(rArm&&(!rHeld||rHeld.userData.w!==rW)){if(rHeld)S.remove(rHeld);rHeld=rW?mkChakra(0xff5a3c):mkSpear(0xff5a3c);rHeld.userData.w=rW}if(!rArm&&rHeld){S.remove(rHeld);rHeld=null}
+ if(rHeld){const h=rc[rArm]||rc[16];rHeld.position.set(h.x,h.y+.1,-6);if(rW)rHeld.children[0].rotation.y+=dt*12;else rHeld.lookAt(h.x,h.y+.1,0)}}
+const say=t=>$('nMsg').textContent=t;
+function setConn(c){conn=c;c.on('data',onNet);c.on('open',netReady);c.on('close',oppLeft);c.on('error',e=>say('Connection error: '+e));if(c.open)netReady()}
+async function netReady(){if(st.mode)return;const m=$('inp').value;$('net').style.display='none';
+ if(m==='cam'){try{await initCam();start('cam',true)}catch(e){start('mock',true);toast('Camera failed, using mouse and keyboard')}}else start('mock',true)}
+// ---- main loop ----
+const clk=new THREE.Clock();let shakeT=0;
+function frame(){requestAnimationFrame(frame);
+ const real=Math.min(clk.getDelta(),.05),dt=real*st.ts,now=performance.now()/1000;
+ if(st.mode){
+  if(st.mode==='mock'){if(mock.hold&&!mock.armed){mock.armT+=real;if(mock.armT>.3)mock.armed=true}if(mock.cHold&&!mock.cArmed){mock.cT+=real;if(mock.cT>.3)mock.cArmed=true}mock.kick-=real;L=mockPose(real);}
+  else{const fresh=camPose(performance.now());
+   if(fresh&&L){const nose=L[0],hm={x:(L[23].x+L[24].x)/2};
+    if(calib&&calib.length<30){calib.push({cx:hm.x,ny:nose.y});$('st').textContent='Calibrating: stand still, face the camera...';
+     if(calib.length===30){base={cx:calib.reduce((a,c)=>a+c.cx,0)/30,ny:calib.reduce((a,c)=>a+c.ny,0)/30};calib=null;}}
+    else{const d0=now-lastNow||.033;gesture(L,d0,now);gestureC(L,d0)}lastNow=now}}
+  if(L&&!calib){const P=L.map(W);BONES.forEach((b,i)=>setBone(bones[i],P[b[0]],P[b[1]]));
+   head.position.set(P[0].x,P[0].y,0);headY=P[0].y;px=(P[0].x+(P[23].x+P[24].x)/2)/2;
+   shieldUpdate(real,st.mode==='mock'?!!(mock.keys.f||mock.keys.shift):shieldPose(L));
+   const armed=st.mode==='mock'?mock.armed:g.armed;
+   const cA=st.mode==='mock'?mock.cArmed:gc.armed;
+   if(cA&&!heldC){heldC=mkChakra(0xb066ff);const h0=handPos(true);burst(new THREE.Vector3(h0.x,h0.y,6),0xb066ff);ring(h0);snd('sum')}
+   if(!cA&&heldC){S.remove(heldC);heldC=null}
+   if(heldC){const h=handPos(true);heldC.position.set(h.x,h.y+.1,6);heldC.children[0].rotation.y+=real*12}
+   if(armed&&!heldP){heldP=mkSpear(0xffd27a);heldP.userData.t=0;const h0=handPos();burst(new THREE.Vector3(h0.x,h0.y,6),0xffd27a);ring(h0);snd('sum')}
+   if(!armed&&heldP){S.remove(heldP);heldP=null}
+   const cp=armed?1:chargeP(),h=handPos();hl.position.set(h.x,h.y,6.6);hl.intensity=cp*2.2+(armed?Math.sin(now*12)*.4:0);
+   orb.visible=cp>0&&!armed;orb.position.set(h.x,h.y,6);orb.scale.setScalar(.05+cp*.22);
+   if(cp>0&&!armed)for(let i=0;i<2;i++){const an=Math.random()*6.28,rr=.9*(1-cp*.5),o=new THREE.Vector3(Math.cos(an)*rr,Math.sin(an)*rr,(Math.random()-.5)*.6);puff(new THREE.Vector3(h.x,h.y,6).add(o),o.clone().multiplyScalar(-4),.22,0xffb060,.06)}
+   if(heldP){const u=heldP.userData;u.t+=real;const k=Math.min(u.t/.25,1);heldP.scale.setScalar(Math.max(.01,1-Math.pow(1-k,3)+Math.sin(k*Math.PI)*.2));
+    heldP.position.set(h.x,h.y+.1+Math.sin(now*6)*.02,6);heldP.lookAt(h.x,h.y+.1,0);heldP.rotateZ(now*3)}
+   if(st.mode==='cam')$('st').textContent=(g.armed?'Spear ready. Swing down and forward.':'Raise a hand above your shoulder.')+'  speed '+g.spd.toFixed(1)+'  duck '+(headY<1.15?'yes':'no')+'  (C to recalibrate)';
+   else $('st').textContent=(mock.armed?'Spear ready. Release to throw.':'Hold mouse to summon.')+'  A/D move, S duck'}
+  if(!st.net)enemyUpdate(dt,now);spears(dt);puffsUpdate(dt);ringsUpdate(real);if(st.net)netTick(real,now)}
+ st.fl=Math.max(0,(st.fl||0)-real*3);st.rfl=Math.max(0,(st.rfl||0)-real*3);av.position.set(0,0,6+st.fl*.7);rav.position.z=-6-st.rfl*.7;if(!st.net)en.position.z=-6-st.rfl*.7;
+ {const e0=st.fl>0?0xaa2200:0,e1=st.rfl>0?0xaa2200:0;if(bones[0].material.emissive.getHex()!==e0){bones.forEach(b=>b.material.emissive.setHex(e0));head.material.emissive.setHex(e0)}if(rBones[0].material.emissive.getHex()!==e1){rBones.forEach(b=>b.material.emissive.setHex(e1));rHead.material.emissive.setHex(e1)}}
+ torches.forEach(t=>t.intensity=1.2+Math.random()*.5);flames.forEach(f=>f.scale.setScalar(.9+Math.random()*.4));embers(real);
+ st.shake=Math.max(0,st.shake-real*1.5);
+ cam.position.set(px*.3+(Math.random()-.5)*st.shake,2.3+(Math.random()-.5)*st.shake,9.4);cam.lookAt(0,1.3,-4);st.kick=Math.max(0,(st.kick||0)-real*3);cam.fov=60+st.kick*9;cam.updateProjectionMatrix();
+ R.render(S,cam)}
+frame();
+
+// ---- input + start ----
+addEventListener('keydown',e=>{mock.keys[e.key.toLowerCase()]=true;if(e.key.toLowerCase()==='c'&&st.mode==='cam'){calib=[]}});
+addEventListener('keyup',e=>mock.keys[e.key.toLowerCase()]=false);
+addEventListener('pointermove',e=>mock.mx=e.clientX/innerWidth);
+addEventListener('pointerdown',e=>{if(st.mode!=='mock')return;if(e.button===2)cStart();else{mock.hold=true;mock.armT=0}});
+addEventListener('contextmenu',e=>e.preventDefault());
+addEventListener('keydown',e=>{if(e.key.toLowerCase()==='e'&&!e.repeat&&st.mode==='mock')cStart()});
+addEventListener('keyup',e=>{if(e.key.toLowerCase()==='e'&&st.mode==='mock')cEnd()});
+addEventListener('pointerup',e=>{if(st.mode!=='mock')return;if(e.button===2)cEnd();else{if(mock.armed)throwSpear((mock.mx-.5)*.6,22);mock.hold=false;mock.armed=false;mock.armT=0}});
+function start(m,net){try{AC=AC||new AudioContext()}catch(e){}st.mode=m;st.net=!!net;if(m==='mock')calib=null;en.visible=!net;$('menu').style.display='none';reset()}
+$('bMock').onclick=()=>start('mock');
+$('bCam').onclick=async()=>{$('err').textContent='Loading camera and pose model...';
+ try{await initCam();start('cam')}
+ catch(e){$('err').textContent='Camera mode failed: '+(e.message||e)+'. Open this file locally in Chrome, allow the camera, and check your internet connection. You can still use mouse and keyboard.'}};
+$('bNet').onclick=()=>{try{AC=AC||new AudioContext()}catch(e){}$('net').style.display='flex'};
+// Set these after you deploy the server (see server/README.md)
+const NET={server:'',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
+function peerOpts(){const ice=[{urls:'stun:stun.l.google.com:19302'}];if(NET.turn)ice.push(NET.turn);const o={config:{iceServers:ice}};
+ if(NET.server){const u=new URL(NET.server);Object.assign(o,{host:u.hostname,port:u.port||(u.protocol==='https:'?443:80),path:'/peerjs',secure:u.protocol==='https:'})}return o}
+function mkPeer(id){return new Promise((res,rej)=>{if(typeof Peer==='undefined'){say('PeerJS did not load. Check your internet and reload.');return rej()}
+ peer=new Peer(id,peerOpts());peer.on('open',()=>res());peer.on('error',e=>{say('Network problem ('+e.type+'). Reload and try again.');rej(e)});peer.on('connection',c=>setConn(c))})}
+$('nHost').onclick=async()=>{if(role){say('Already chosen. Reload the page to start over.');return}role='host';say('Creating room...');
+ const code=Array.from({length:4},()=>'ABCDEFGHJKMNPQRSTUVWXYZ'[Math.random()*23|0]).join('');
+ try{await mkPeer('warcry-'+code);$('nOut').value=code;say('Room code: '+code+'. Tell the other player to click Join and type it. Waiting for them...')}catch(e){role=null}};
+$('nJoin').onclick=()=>{if(role){say('Already chosen. Reload the page to start over.');return}role='guest';say("Type the host's 4-letter room code and press Connect.")};
+$('nGo').onclick=async()=>{if(role!=='guest'){say('Joiners: click "Join a duel" first. Hosts: just wait, no need to press Connect.');return}
+ const code=$('nIn').value.trim().toUpperCase();if(code.length!==4){say('Type the 4-letter room code first.');return}
+ say('Connecting...');try{if(!peer)await mkPeer();const c=peer.connect('warcry-'+code,{reliable:true});setConn(c);
+  setTimeout(()=>{if(!c.open&&!st.mode)say('Could not reach that room. Check the code and make sure the host is still waiting.')},8000)}catch(e){}};
+$('nQuick').onclick=async()=>{if(!NET.server){say('Quick match needs your own server. Deploy the server folder, then set NET.server in this file.');return}
+ if(role){say('Already chosen. Reload the page to start over.');return}role='quick';say('Looking for an opponent...');
+ try{await mkPeer();const r=await(await fetch(NET.server+'/match?id='+peer.id)).json();
+  if(r.role==='guest'){setConn(peer.connect(r.opponent,{reliable:true}));say('Found one, connecting...')}
+  else if(r.role==='host')say('Opponent found, connecting...');else{say('No opponent yet. Reload and try again.')}}
+ catch(e){say('Server not reachable.')}};
+</script></body></html>
