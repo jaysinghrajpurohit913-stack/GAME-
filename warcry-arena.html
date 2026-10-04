@@ -34,8 +34,8 @@ select{font:inherit;padding:6px;background:#140f18;color:#f3e6d8;border:1px soli
 <div id="end"><h1 id="endT"></h1><p id="endM"></p><div><button id="endB">Rematch</button><button id="endL" class="alt">Leave</button></div></div>
 <div id="menu"><h1>Warcry: Body Arena</h1>
 <p>Prototype: one mechanic. Throw a spear at the enemy and dodge the ones thrown back.</p>
-<p><b>Webcam:</b> raise a hand above your shoulder for 0.3s to summon a spear, then swing your arm down and forward to throw. For the chakra, bend one arm with the elbow down and your hand out to the side and up, like a sideways V, hold 0.35s, then sweep or snap to throw. Lean, sidestep or duck to dodge. Cross your arms over your chest (hands on opposite shoulders) and keep them there to hold a shield up. Uncross and it disappears. Stand 2 m back with your upper body and head in view.</p>
-<p><b>Mouse and keyboard:</b> hold the mouse button to summon, release to throw toward the cursor. Hold right mouse (or E) for the chakra. A/D moves, S ducks. Hold F or Shift for the shield.</p>
+<p><b>Webcam:</b> raise a hand above your shoulder for 0.3s to summon a spear, then swing your arm down and forward to throw. For the chakra, bend one arm with the elbow down and your hand out to the side and up, like a sideways V, hold 0.35s, then sweep or snap to throw. Lean, sidestep or duck to dodge. For the energy wave, cup both hands together at your hip off to one side, hold to charge (up to 1.6s) and then thrust or drop them to fire. Cross your arms over your chest (hands on opposite shoulders) and keep them there to hold a shield up. Uncross and it disappears. Stand 2 m back with your upper body and head in view.</p>
+<p><b>Mouse and keyboard:</b> hold the mouse button to summon, release to throw toward the cursor. Hold right mouse (or E) for the chakra. A/D moves, S ducks. Hold F or Shift for the shield. Hold Q to charge the energy wave and release to fire.</p>
 <div id="err"></div>
 <div><button id="bCam">Play with webcam</button><button id="bMock" class="alt">Play with mouse and keyboard</button><button id="bNet" class="alt">Online duel (2 players)</button></div>
 <div id="net"><label>Your controls: <select id="inp"><option value="cam">Webcam</option><option value="mock">Mouse and keyboard</option></select></label>
@@ -102,6 +102,31 @@ function mkChakra(c){const g=new THREE.Group(),t=new THREE.Group(),e={emissive:c
 let heldC=null;
 const flying=[];const G=5;
 let heldP=null,heldE=null;
+const g0=new THREE.CylinderGeometry(1,1,1,14);g0.rotateX(Math.PI/2);
+function mkBeam(c,rad){const g=new THREE.Group(),mk=(r,col,op)=>{const m=new THREE.Mesh(g0,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:op,depthWrite:false}));m.userData.r=r;return m};
+ const o=mk(rad,c,.55),i=mk(rad*.5,0xffffff,.95),t=new THREE.Mesh(new THREE.SphereGeometry(1,14,10),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.95}));t.userData.r=rad*1.1;
+ g.add(o,i,t);S.add(g);return g}
+function beamVis(s){const d=s.p.distanceTo(s.o)||.01,[o,i,t]=s.m.children;s.m.position.copy(s.o).add(s.p).multiplyScalar(.5);s.m.lookAt(s.p);
+ o.scale.set(o.userData.r,o.userData.r,d);i.scale.set(i.userData.r,i.userData.r,d);t.position.z=d/2;t.scale.setScalar(t.userData.r)}
+const ks={on:false,c:0,lost:0,cool:0,hx:0,hy:1};
+const kOrb=new THREE.Mesh(new THREE.SphereGeometry(1,16,12),new THREE.MeshBasicMaterial({color:0x8fe8ff,transparent:true,opacity:.9}));kOrb.visible=false;S.add(kOrb);
+function kamePose(L){const sw=Math.abs(L[11].x-L[12].x)||.15;if(L[15].v<.4||L[16].v<.4)return false;
+ const mx=(L[11].x+L[12].x)/2,sy=(L[11].y+L[12].y)/2,a=L[15],b=L[16],cx=(a.x+b.x)/2,cy=(a.y+b.y)/2;
+ // both hands cupped together at hip level, off to one side of the body
+ return Math.hypot(a.x-b.x,a.y-b.y)<.55*sw&&(cy-sy)/sw>.95&&(cy-sy)/sw<1.7&&Math.abs(cx-mx)>.5*sw&&Math.abs(cx-mx)<1.7*sw}
+function fireBeam(h,c,dxAim){const rad=.2+.3*c,T=12/38,ex=st.net?(rc[0]?rc[0].x:0):2.2*Math.sin((performance.now()/1000+T)*.5);
+ const vx=.85*(ex-h.x)/T+dxAim*38,y=Math.max(1.05,h.y+.25);
+ flying.push({m:mkBeam(0x6fe0ff,rad),p:new THREE.Vector3(h.x,y,6),o:new THREE.Vector3(h.x,y,6),v:new THREE.Vector3(vx,0,-38),mine:true,k:true,hw:.45+.6*c,dmg:Math.round(20+40*c),life:0});
+ st.kick=1.4;st.shake=.35;snd('beam');
+ if(st.net)netSend({t:'k',x:+h.x.toFixed(2),y:+y.toFixed(2),vx:+vx.toFixed(2),c:+c.toFixed(2)})}
+function kameUpdate(dt){ks.cool-=dt;
+ const pose=st.mode==='mock'?!!mock.keys.q:kamePose(L);
+ if(pose){const a=W(L[15]),b=W(L[16]);ks.hx=(a.x+b.x)/2;ks.hy=(a.y+b.y)/2}
+ if(!ks.on){if(pose&&ks.cool<=0&&!sh.up&&!over){ks.on=true;ks.c=0;ks.lost=0;snd('sum')}}
+ else if(pose){ks.lost=0;ks.c=Math.min(1,ks.c+dt/1.6)}
+ else{ks.lost+=dt;if(ks.lost>.15){if(ks.c>=.2)fireBeam({x:ks.hx,y:ks.hy},ks.c,st.mode==='mock'?(mock.mx-.5)*.5:0);ks.on=false;ks.cool=1.2}}
+ kOrb.visible=ks.on;if(ks.on){kOrb.position.set(ks.hx,ks.hy,5.8);kOrb.scale.setScalar(.07+.3*ks.c);
+  for(let i=0;i<2;i++){const an=Math.random()*6.28,rr=.8*(1-ks.c*.4),o=new THREE.Vector3(Math.cos(an)*rr,Math.sin(an)*rr,(Math.random()-.5)*.5);puff(new THREE.Vector3(ks.hx,ks.hy,5.8).add(o),o.clone().multiplyScalar(-4),.22,0x66e0ff,.06)}}}
 const sh={up:false,hits:2,cool:0,t:0};let rSh=0;
 const shMat=()=>new THREE.MeshBasicMaterial({color:0x66ccff,transparent:true,opacity:.3,side:2,depthWrite:false});
 const shM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat()),rShM=new THREE.Mesh(new THREE.CircleGeometry(.95,28),shMat());shM.visible=rShM.visible=false;S.add(shM,rShM);
@@ -134,7 +159,7 @@ function mockPose(dt){const k=mock.keys;
  const set=(i,x,y)=>{P[i]={x,y,v:1}};
  set(0,.5,.22);set(11,.58,.36);set(12,.42,.36);set(13,.62,.46);set(15,.64,.56);
  const cu=mock.cArmed||mock.cHold;set(14,cu?.38:(up?.35:.38),cu?.54:(up?.3:.46));set(16,cu?.24:(up?.33:.4),cu?.45:(up?.2:.56+(mock.kick>0?-.1:0)));
- if(k.f||k.shift){set(14,.5,.5);set(13,.5,.5);set(16,.57,.42);set(15,.43,.42)}set(23,.56,.62);set(24,.44,.62);set(25,.56,.75);set(26,.44,.75);set(27,.56,.88);set(28,.44,.88);
+ if(k.q){set(14,.38,.5);set(13,.48,.52);set(16,.33,.58);set(15,.34,.59)}if(k.f||k.shift){set(14,.5,.5);set(13,.5,.5);set(16,.57,.42);set(15,.43,.42)}set(23,.56,.62);set(24,.44,.62);set(25,.56,.75);set(26,.44,.75);set(27,.56,.88);set(28,.44,.88);
  for(const p of P){p.y+=mock.d*.22*Math.max(0,1-(p.y-.22)/.66);p.x-=mock.wx/3}
  return P}
 
@@ -185,6 +210,7 @@ function throwSpear(dx,spd){const h=handPos(),sp=mkSpear(0xffd27a);
  flying.push({m:sp,p:new THREE.Vector3(h.x,h.y,6),v:d,mine:true,life:0});mock.kick=.2;mock.armed=false;st.kick=1;snd('throw');if(st.net)netSend({t:'t',x:+h.x.toFixed(2),y:+h.y.toFixed(2),v:[d.x,d.y,d.z].map(n=>+n.toFixed(2))})}
 let AC;function snd(t){try{if(!AC)return;const n=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);
  if(t==='sum'){o.type='sine';o.frequency.setValueAtTime(220,n);o.frequency.exponentialRampToValueAtTime(900,n+.3);g.gain.setValueAtTime(.001,n);g.gain.linearRampToValueAtTime(.12,n+.25);g.gain.exponentialRampToValueAtTime(.001,n+.5)}
+ else if(t==='beam'){o.type='sawtooth';o.frequency.setValueAtTime(120,n);o.frequency.exponentialRampToValueAtTime(55,n+.6);g.gain.setValueAtTime(.18,n);g.gain.exponentialRampToValueAtTime(.001,n+.6)}
  else if(t==='throw'){o.type='sawtooth';o.frequency.setValueAtTime(700,n);o.frequency.exponentialRampToValueAtTime(90,n+.3);g.gain.setValueAtTime(.09,n);g.gain.exponentialRampToValueAtTime(.001,n+.35)}
  else{o.type='square';o.frequency.setValueAtTime(160,n);o.frequency.exponentialRampToValueAtTime(40,n+.2);g.gain.setValueAtTime(.14,n);g.gain.exponentialRampToValueAtTime(.001,n+.25)}
  o.start(n);o.stop(n+.6)}catch(e){}}
@@ -217,16 +243,16 @@ function enemyUpdate(dt,now){en.position.x=2.2*Math.sin(now*.5);
 
 // ---- spears update + hits ----
 function spears(dt){for(let i=flying.length-1;i>=0;i--){const s=flying[i];
- if(s.stuck){s.life+=dt;s.m.position.x=s.p.x+Math.sin(s.life*70)*Math.max(0,.4-s.life)*.12;if(s.life>2){S.remove(s.m);flying.splice(i,1)}continue}
- const pz=s.p.z;if(s.c){s.v.x+=s.curve*dt;s.v.y-=G*.25*dt}else s.v.y-=G*dt;s.p.addScaledVector(s.v,dt);s.m.position.copy(s.p);
- if(s.c)s.m.children[0].rotation.y+=dt*30;else{s.m.lookAt(s.p.clone().add(s.v));s.m.rotateZ(s.spin=(s.spin||0)+dt*(s.mine?22:10))}
- puff(s.p,tv.set(0,0,0),.3,s.c?0xb066ff:(s.mine?0xffd27a:0xff5a3c),.07);
+ if(s.stuck){s.life+=dt;if(s.k)s.m.children.forEach(c=>c.material.opacity=Math.max(0,(c.userData.r?1:1)*(1-s.life/.45)));else s.m.position.x=s.p.x+Math.sin(s.life*70)*Math.max(0,.4-s.life)*.12;if(s.life>(s.k?.45:2)){S.remove(s.m);flying.splice(i,1)}continue}
+ const pz=s.p.z;if(s.c){s.v.x+=s.curve*dt;s.v.y-=G*.25*dt}else if(!s.k)s.v.y-=G*dt;s.p.addScaledVector(s.v,dt);s.m.position.copy(s.p);
+ if(s.k)beamVis(s);else if(s.c)s.m.children[0].rotation.y+=dt*30;else{s.m.lookAt(s.p.clone().add(s.v));s.m.rotateZ(s.spin=(s.spin||0)+dt*(s.mine?22:10))}
+ if(!s.k)puff(s.p,tv.set(0,0,0),.3,s.c?0xb066ff:(s.mine?0xffd27a:0xff5a3c),.07);
  if(s.mine&&!st.net&&pz>-6&&s.p.z<=-6){const dx=s.p.x-en.position.x;
-  if(Math.abs(dx)<.55&&s.p.y>.1&&s.p.y<2&&!over){const hd=s.p.y>1.5;st.ehp-=s.c?(hd?35:25):(hd?40:20);st.rfl=1;hitFx(hd);toast(hd?'Headshot':'Hit');burst(s.p,0xffd27a);snd('hit');bars();s.stuck=true;s.v.set(0,0,0);
+  if(Math.abs(dx)<(s.k?s.hw:.55)&&s.p.y>.1&&s.p.y<2&&!over){const hd=!s.k&&s.p.y>1.5;st.ehp-=s.k?s.dmg:s.c?(hd?35:25):(hd?40:20);st.rfl=1;hitFx(hd);toast(hd?'Headshot':'Hit');burst(s.p,0xffd27a);snd('hit');bars();if(!s.k){s.stuck=true;s.v.set(0,0,0)}
    if(st.ehp<=0){endRound(true)}}}
  if(!s.mine&&pz<6&&s.p.z>=6){const dx=Math.abs(s.p.x-px);
   if(sh.up&&dx<.9&&s.p.y>.1&&s.p.y<headY+.5)blockHit(s);
-  else if(dx<.45&&s.p.y>.1&&s.p.y<headY+.25&&!over){const hd=s.p.y>headY-.25;st.php-=s.c?(hd?35:25):(hd?40:20);st.fl=1;hitFx(true);bars();if(st.net)netSend({t:'h',hd,hp:Math.max(0,st.php),x:+s.p.x.toFixed(2),y:+s.p.y.toFixed(2)});const f=$('flash');f.style.opacity=1;setTimeout(()=>f.style.opacity=0,200);toast('Ouch');burst(s.p,0xff5a3c);snd('hit');s.stuck=true;s.v.set(0,0,0);
+  else if(dx<(s.k?s.hw:.45)&&s.p.y>.1&&s.p.y<headY+.25&&!over){const hd=!s.k&&s.p.y>headY-.25;st.php-=s.k?s.dmg:s.c?(hd?35:25):(hd?40:20);st.fl=1;hitFx(true);bars();if(st.net)netSend({t:'h',hd,hp:Math.max(0,st.php),x:+s.p.x.toFixed(2),y:+s.p.y.toFixed(2)});const f=$('flash');f.style.opacity=1;setTimeout(()=>f.style.opacity=0,200);toast('Ouch');burst(s.p,0xff5a3c);snd('hit');if(!s.k){s.stuck=true;s.v.set(0,0,0)}
    if(st.php<=0){if(st.net)netSend({t:'d'});endRound(false)}}
   else{const near=dx<.8&&s.p.y>.1&&s.p.y<headY+.6;toast(near?'Close call':'Dodged');if(near){st.ts=.25;setTimeout(()=>st.ts=1,260)}}}
  if(!s.stuck&&(s.p.y<0||Math.abs(s.p.z)>15)){s.stuck=true;s.v.set(0,0,0)}}}
@@ -253,6 +279,7 @@ const J=[0,11,12,13,14,15,16,23,24,25,26,27,28];
 const rav=new THREE.Group();rav.position.z=-6;rav.visible=false;S.add(rav);
 const rBones=BONES.map(()=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,1,8),M(0xc96a5a));rav.add(m);return m});
 const rHead=new THREE.Mesh(new THREE.SphereGeometry(.17,16,12),M(0xd9a48a));rav.add(rHead);
+const rKo=new THREE.Mesh(new THREE.SphereGeometry(1,14,10),new THREE.MeshBasicMaterial({color:0xff9a6a,transparent:true,opacity:.9}));rKo.visible=false;S.add(rKo);let rK=0;
 let peer,conn,rt=null,rc={},rArm=0,rW=0,rHeld=null,lastSend=0,lastPing=0,left=false,role=null,over=false,myR=false,opR=false;
 function endRound(win){over=true;myR=opR=false;$('endT').textContent=win?'You win':'You fell';$('endM').textContent='';$('endB').style.display='';$('endB').textContent=st.net?'Rematch':'Play again';$('end').style.display='flex'}
 function startRound(){over=false;myR=opR=false;$('end').style.display='none';flying.splice(0).forEach(q=>S.remove(q.m));reset()}
@@ -261,10 +288,11 @@ $('endB').onclick=()=>{if(!st.net){startRound();return}myR=true;netSend({t:'r'})
 $('endL').onclick=()=>location.reload();
 const netSend=o=>{if(conn&&conn.open)conn.send(o)};
 function onNet(m){
- if(m.t==='p'){rt=J.map((_,k)=>({x:-m.j[2*k],y:m.j[2*k+1]}));rArm=m.a;rW=m.w||0;rSh=m.s||0;rav.visible=true}
+ if(m.t==='p'){rt=J.map((_,k)=>({x:-m.j[2*k],y:m.j[2*k+1]}));rArm=m.a;rW=m.w||0;rSh=m.s||0;rK=m.k||0;rav.visible=true}
  else if(m.t==='t'){flying.push({m:mkSpear(0xff5a3c),p:new THREE.Vector3(-m.x,m.y,-6),v:new THREE.Vector3(-m.v[0],m.v[1],-m.v[2]),mine:false,life:0});snd('throw')}
  else if(m.t==='c'){flying.push({m:mkChakra(0xff5a3c),p:new THREE.Vector3(-m.x,m.y,-6),v:new THREE.Vector3(-m.v[0],m.v[1],-m.v[2]),mine:false,c:true,curve:-m.cv,life:0});snd('throw')}
  else if(m.t==='b'){burst(new THREE.Vector3(-m.x,m.y,-6),0x66ccff);snd('hit');toast('They blocked')}
+ else if(m.t==='k'){const rad=.2+.3*m.c,y=m.y;flying.push({m:mkBeam(0xff7a5c,rad),p:new THREE.Vector3(-m.x,y,-6),o:new THREE.Vector3(-m.x,y,-6),v:new THREE.Vector3(-m.vx,0,38),mine:false,k:true,hw:.45+.6*m.c,dmg:Math.round(20+40*m.c),life:0});snd('beam')}
  else if(m.t==='pi')netSend({t:'po',ts:m.ts});
  else if(m.t==='po')$('ping').textContent='Ping '+Math.round(performance.now()-m.ts)+' ms';
  else if(m.t==='r'){opR=true;if(myR)startRound();else if(over)$('endM').textContent='Opponent wants a rematch'}
@@ -273,15 +301,26 @@ function onNet(m){
 function netTick(dt,now){if(now-lastPing>2){lastPing=now;netSend({t:'pi',ts:performance.now()})}
  if(L&&!calib&&conn&&conn.open&&now-lastSend>.05){lastSend=now;
   const j=[];for(const i of J){const w=W(L[i]);j.push(+w.x.toFixed(2),+w.y.toFixed(2))}
-  const mk=st.mode==='mock';netSend({t:'p',j,a:mk?((mock.armed||mock.cArmed)?16:0):(g.armed?g.hand:(gc.armed?gc.hand:0)),w:mk?(mock.cArmed?1:0):(gc.armed&&!g.armed?1:0),s:sh.up?1:0})}
+  const mk=st.mode==='mock';netSend({t:'p',j,a:mk?((mock.armed||mock.cArmed)?16:0):(g.armed?g.hand:(gc.armed?gc.hand:0)),w:mk?(mock.cArmed?1:0):(gc.armed&&!g.armed?1:0),s:sh.up?1:0,k:ks.on?+ks.c.toFixed(2):0})}
  if(!rt)return;const al=Math.min(1,dt*14);
  J.forEach((i,k)=>{const t=rt[k],c=rc[i]||(rc[i]={x:t.x,y:t.y});c.x+=(t.x-c.x)*al;c.y+=(t.y-c.y)*al});
- BONES.forEach((b,i)=>setBone(rBones[i],rc[b[0]],rc[b[1]]));rHead.position.set(rc[0].x,rc[0].y,0);rShM.visible=!!rSh;rShM.position.set(rc[0].x,1.15,-5.4);
+ BONES.forEach((b,i)=>setBone(rBones[i],rc[b[0]],rc[b[1]]));rHead.position.set(rc[0].x,rc[0].y,0);rKo.visible=rK>0;if(rK>0){rKo.position.set((rc[15].x+rc[16].x)/2,(rc[15].y+rc[16].y)/2,-5.8);rKo.scale.setScalar(.07+.3*rK)}rShM.visible=!!rSh;rShM.position.set(rc[0].x,1.15,-5.4);
  if(rArm&&(!rHeld||rHeld.userData.w!==rW)){if(rHeld)S.remove(rHeld);rHeld=rW?mkChakra(0xff5a3c):mkSpear(0xff5a3c);rHeld.userData.w=rW}if(!rArm&&rHeld){S.remove(rHeld);rHeld=null}
  if(rHeld){const h=rc[rArm]||rc[16];rHeld.position.set(h.x,h.y+.1,-6);if(rW)rHeld.children[0].rotation.y+=dt*12;else rHeld.lookAt(h.x,h.y+.1,0)}}
 const say=t=>$('nMsg').textContent=t;
-function setConn(c){conn=c;c.on('data',onNet);c.on('open',netReady);c.on('close',oppLeft);c.on('error',e=>say('Connection error: '+e));if(c.open)netReady()}
-async function netReady(){if(st.mode)return;const m=$('inp').value;$('net').style.display='none';
+function resetNet(){try{conn&&conn.close&&conn.close()}catch(e){}try{peer&&peer.destroy()}catch(e){}conn=null;peer=null;role=null}
+function relayConn(room){const ws=new WebSocket(NET.server.replace(/^http/,'ws')+'/relay?room='+encodeURIComponent(room));
+ const c={open:false,relay:true,send:o=>{if(c.open&&ws.readyState===1)ws.send(JSON.stringify(o))},close:()=>{try{ws.close()}catch(e){}}};
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.t==='ready'){c.open=true;netReady()}else if(m.t==='left')oppLeft();else onNet(m)};
+ ws.onclose=()=>{if(c.open)oppLeft()};ws.onerror=()=>say('Relay connection failed. Is the server running?');return c}
+function useRelay(room){say('Using the relay (a little more lag, but works on any network)...');conn=relayConn(room)}
+function setConn(c,room){conn=c;let ok=false;
+ if(NET.server&&/[?&]relay=1/.test(location.search)){setTimeout(()=>{try{c.close()}catch(e){}useRelay(room)},1500);return} // test switch: skip the direct attempt
+ c.on('data',onNet);c.on('open',()=>{ok=true;netReady()});c.on('close',oppLeft);c.on('error',e=>say('Connection error: '+e));if(c.open){ok=true;netReady()}
+ setTimeout(()=>{if(ok||st.mode)return;
+  if(NET.server){try{c.close()}catch(e){}useRelay(room)}
+  else say('Could not connect directly. Your two networks probably block peer-to-peer. Try a phone hotspot on one side, or deploy the server and set NET.server to enable the relay.')},9000)}
+async function netReady(){if(st.mode||netReady.busy)return;netReady.busy=true;$('err').textContent='Connected! Starting game (webcam mode may ask for camera permission)...';const m=$('inp').value;$('net').style.display='none';
  if(m==='cam'){try{await initCam();start('cam',true)}catch(e){start('mock',true);toast('Camera failed, using mouse and keyboard')}}else start('mock',true)}
 // ---- main loop ----
 const clk=new THREE.Clock();let shakeT=0;
@@ -296,7 +335,8 @@ function frame(){requestAnimationFrame(frame);
     else{const d0=now-lastNow||.033;gesture(L,d0,now);gestureC(L,d0)}lastNow=now}}
   if(L&&!calib){const P=L.map(W);BONES.forEach((b,i)=>setBone(bones[i],P[b[0]],P[b[1]]));
    head.position.set(P[0].x,P[0].y,0);headY=P[0].y;px=(P[0].x+(P[23].x+P[24].x)/2)/2;
-   shieldUpdate(real,st.mode==='mock'?!!(mock.keys.f||mock.keys.shift):shieldPose(L));
+   kameUpdate(real);
+   shieldUpdate(real,!ks.on&&(st.mode==='mock'?!!(mock.keys.f||mock.keys.shift):(shieldPose(L)&&!kamePose(L))));
    const armed=st.mode==='mock'?mock.armed:g.armed;
    const cA=st.mode==='mock'?mock.cArmed:gc.armed;
    if(cA&&!heldC){heldC=mkChakra(0xb066ff);const h0=handPos(true);burst(new THREE.Vector3(h0.x,h0.y,6),0xb066ff);ring(h0);snd('sum')}
@@ -334,25 +374,27 @@ $('bMock').onclick=()=>start('mock');
 $('bCam').onclick=async()=>{$('err').textContent='Loading camera and pose model...';
  try{await initCam();start('cam')}
  catch(e){$('err').textContent='Camera mode failed: '+(e.message||e)+'. Open this file locally in Chrome, allow the camera, and check your internet connection. You can still use mouse and keyboard.'}};
-$('bNet').onclick=()=>{try{AC=AC||new AudioContext()}catch(e){}$('net').style.display='flex'};
+$('bNet').onclick=()=>{try{AC=AC||new AudioContext()}catch(e){}$('net').style.display='flex';if(NET.server){say('Contacting server...');fetch(NET.server+'/').then(()=>say('Server ready.')).catch(()=>say('Server not reachable yet. Wait a bit and try again.'))}};
 // Set these after you deploy the server (see server/README.md)
-const NET={server:'https://game-73a0.onrender.com',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
-function peerOpts(){const ice=[{urls:'stun:stun.l.google.com:19302'}];if(NET.turn)ice.push(NET.turn);const o={config:{iceServers:ice}};
+const NET={server:'',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
+function peerOpts(){const ice=[{urls:'stun:stun.l.google.com:19302'}];if(NET.turn)ice.push(...[].concat(NET.turn));const o={config:{iceServers:ice}};
  if(NET.server){const u=new URL(NET.server);Object.assign(o,{host:u.hostname,port:u.port||(u.protocol==='https:'?443:80),path:'/peerjs',secure:u.protocol==='https:'})}return o}
 function mkPeer(id){return new Promise((res,rej)=>{if(typeof Peer==='undefined'){say('PeerJS did not load. Check your internet and reload.');return rej()}
- peer=new Peer(id,peerOpts());peer.on('open',()=>res());peer.on('error',e=>{say('Network problem ('+e.type+'). Reload and try again.');rej(e)});peer.on('connection',c=>setConn(c))})}
-$('nHost').onclick=async()=>{if(role){say('Already chosen. Reload the page to start over.');return}role='host';say('Creating room...');
+ const tm=setTimeout(()=>{say('Server is not answering. A free server may be waking up: wait 30 seconds and press the button again.');rej(new Error('timeout'))},15000);
+ peer=new Peer(id,peerOpts());peer.on('open',()=>{clearTimeout(tm);res()});
+ peer.on('error',e=>{clearTimeout(tm);say(e.type==='peer-unavailable'?'No room with that code. Check the letters and make sure the host is waiting.':'Network problem ('+e.type+'). Press the button to try again.');rej(e)});
+ peer.on('connection',c=>setConn(c,peer.id))})}
+$('nHost').onclick=async()=>{resetNet();role='host';say('Creating room...');
  const code=Array.from({length:4},()=>'ABCDEFGHJKMNPQRSTUVWXYZ'[Math.random()*23|0]).join('');
  try{await mkPeer('warcry-'+code);$('nOut').value=code;say('Room code: '+code+'. Tell the other player to click Join and type it. Waiting for them...')}catch(e){role=null}};
-$('nJoin').onclick=()=>{if(role){say('Already chosen. Reload the page to start over.');return}role='guest';say("Type the host's 4-letter room code and press Connect.")};
-$('nGo').onclick=async()=>{if(role!=='guest'){say('Joiners: click "Join a duel" first. Hosts: just wait, no need to press Connect.');return}
+$('nJoin').onclick=()=>{resetNet();role='guest';say("Type the host's 4-letter room code and press Connect.")};
+$('nGo').onclick=async()=>{if(role==='host'){say('You are hosting: just wait for your friend. To join someone else, press Join a duel first.');return}role='guest';
  const code=$('nIn').value.trim().toUpperCase();if(code.length!==4){say('Type the 4-letter room code first.');return}
- say('Connecting...');try{if(!peer)await mkPeer();const c=peer.connect('warcry-'+code,{reliable:true});setConn(c);
-  setTimeout(()=>{if(!c.open&&!st.mode)say('Could not reach that room. Check the code and make sure the host is still waiting.')},8000)}catch(e){}};
+ say('Connecting...');try{if(!peer)await mkPeer();const c=peer.connect('warcry-'+code,{reliable:true});setConn(c,'warcry-'+code);}catch(e){}};
 $('nQuick').onclick=async()=>{if(!NET.server){say('Quick match needs your own server. Deploy the server folder, then set NET.server in this file.');return}
- if(role){say('Already chosen. Reload the page to start over.');return}role='quick';say('Looking for an opponent...');
+ resetNet();role='quick';say('Looking for an opponent...');
  try{await mkPeer();const r=await(await fetch(NET.server+'/match?id='+peer.id)).json();
-  if(r.role==='guest'){setConn(peer.connect(r.opponent,{reliable:true}));say('Found one, connecting...')}
-  else if(r.role==='host')say('Opponent found, connecting...');else{say('No opponent yet. Reload and try again.')}}
+  if(r.role==='guest'){setConn(peer.connect(r.opponent,{reliable:true}),r.opponent);say('Found one, connecting...')}
+  else if(r.role==='host')say('Opponent found, connecting...');else{say('No opponent yet. Press Quick match again.')}}
  catch(e){say('Server not reachable.')}};
 </script></body></html>
