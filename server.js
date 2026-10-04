@@ -1,5 +1,4 @@
-// Warcry server: PeerJS signaling (/peerjs) + quick-match queue (/match).
-// Gameplay data never passes through here; it only introduces two players.
+// Warcry server: PeerJS signaling (/peerjs) + quick-match queue (/match) + relay (/relay).
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -11,10 +10,10 @@ app.use(cors());
 const server = http.createServer(app);
 
 app.get('/', (req, res) => res.send('Warcry server OK'));
+app.get('/version', (req, res) => res.json({ v: 'relay-1' }));
 app.use('/peerjs', ExpressPeerServer(server, { path: '/', allow_discovery: false }));
 
-// ---- Relay fallback: when two players cannot connect directly (strict NAT), forward their small
-// game messages through this server instead. Same room name on both sides pairs them. ----
+// Relay fallback: forwards game messages when two players cannot connect directly.
 const peerUpgrades = server.listeners('upgrade').slice();
 server.removeAllListeners('upgrade');
 const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
@@ -38,9 +37,9 @@ server.on('upgrade', (req, socket, head) => {
     wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, room));
   } else peerUpgrades.forEach(l => l.call(server, req, socket, head));
 });
-setInterval(() => wss.clients.forEach(w => w.readyState === 1 && w.ping()), 25000); // keep connections alive
+setInterval(() => wss.clients.forEach(w => w.readyState === 1 && w.ping()), 25000);
 
-// Quick match: first caller waits (long-poll), second caller is paired with them.
+// Quick match: first caller waits, second caller is paired with them.
 let waiting = null;
 app.get('/match', (req, res) => {
   const id = String(req.query.id || '');
@@ -49,14 +48,14 @@ app.get('/match', (req, res) => {
     const w = waiting;
     waiting = null;
     clearTimeout(w.timer);
-    w.res.json({ role: 'host', opponent: id });      // waiter hosts, newcomer connects to them
+    w.res.json({ role: 'host', opponent: id });
     return res.json({ role: 'guest', opponent: w.id });
   }
   if (waiting) clearTimeout(waiting.timer);
   const entry = { id, res };
   entry.timer = setTimeout(() => {
     if (waiting === entry) waiting = null;
-    res.json({ role: null });                         // nobody came; client can retry
+    res.json({ role: null });
   }, 25000);
   waiting = entry;
   req.on('close', () => { if (waiting === entry && !res.writableEnded) { clearTimeout(entry.timer); waiting = null; } });
