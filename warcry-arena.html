@@ -376,7 +376,7 @@ $('bCam').onclick=async()=>{$('err').textContent='Loading camera and pose model.
  catch(e){$('err').textContent='Camera mode failed: '+(e.message||e)+'. Open this file locally in Chrome, allow the camera, and check your internet connection. You can still use mouse and keyboard.'}};
 $('bNet').onclick=()=>{try{AC=AC||new AudioContext()}catch(e){}$('net').style.display='flex';if(NET.server){say('Contacting server...');fetch(NET.server+'/').then(()=>say('Server ready.')).catch(()=>say('Server not reachable yet. Wait a bit and try again.'))}};
 // Set these after you deploy the server (see server/README.md)
-const NET={server:'',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
+const NET={server:'https://game-73a0.onrender.com/',turn:null}; // e.g. server:'https://warcry.onrender.com', turn:{urls:'turn:host:3478',username:'u',credential:'p'}
 function peerOpts(){const ice=[{urls:'stun:stun.l.google.com:19302'}];if(NET.turn)ice.push(...[].concat(NET.turn));const o={config:{iceServers:ice}};
  if(NET.server){const u=new URL(NET.server);Object.assign(o,{host:u.hostname,port:u.port||(u.protocol==='https:'?443:80),path:'/peerjs',secure:u.protocol==='https:'})}return o}
 function mkPeer(id){return new Promise((res,rej)=>{if(typeof Peer==='undefined'){say('PeerJS did not load. Check your internet and reload.');return rej()}
